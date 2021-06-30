@@ -47,7 +47,7 @@ uint64_t unwrap(WrappingInt32 n, WrappingInt32 isn, uint64_t checkpoint) {
     else {
         if (re_sq + MAX32_T * k > checkpoint + HALF_MAX32_T)
             abs_sq = re_sq + MAX32_T * (k - 1);
-        else if (re_sq + MAX32_T * k < checkpoint - HALF_MAX32_T)
+        else if (re_sq + MAX32_T * k + HALF_MAX32_T < checkpoint)
             abs_sq = re_sq + MAX32_T * (k + 1);
         else
             abs_sq = re_sq + MAX32_T * k;
