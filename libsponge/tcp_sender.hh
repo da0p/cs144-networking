@@ -8,6 +8,7 @@
 
 #include <functional>
 #include <queue>
+#include <map>
 
 //! \brief The "sender" part of a TCP implementation.
 
@@ -31,6 +32,46 @@ class TCPSender {
 
     //! the (absolute) sequence number for the next byte to be sent
     uint64_t _next_seqno{0};
+
+    //! dictionary for keeping outstanding segment
+    std::map<uint64_t, TCPSegment> tcps_outstanding_segments{};
+
+    //! receiver's window size
+    uint16_t tcps_window_size{1};
+
+    //! bytes in flight
+    size_t tcps_bytes_in_flight{0};
+
+    //! syn flag
+    bool tcps_syn{false};
+
+    //! fin flag
+    bool tcps_fin{false};
+
+    //! ack flag
+    bool tcps_receiver_full{false};
+
+    //! syn ack flag
+    bool tcps_syn_ack{false};
+
+    //! next_segno_ack
+    uint64_t tcps_next_segno_ack{0};
+
+    //! segno_ack
+    uint64_t tcps_segno_max_ack{0};
+
+    //! Retransmission timeout
+    unsigned int tcps_rto{0};
+
+    //! Consecutive retransmiossion number
+    unsigned int tcps_consecutive_retransmissions{0};
+
+    //! timer marker in ms
+    size_t tcps_elapsed_time{0}; 
+
+    //! timer on/off
+    bool tcps_timer_on{false};
+
 
   public:
     //! Initialize a TCPSender
@@ -59,6 +100,9 @@ class TCPSender {
     //! \brief Notifies the TCPSender of the passage of time
     void tick(const size_t ms_since_last_tick);
     //!@}
+    //
+    
+    void send_segment(TCPSegment segment);
 
     //! \name Accessors
     //!@{
