@@ -31,6 +31,7 @@ class TCPSender {
     ByteStream _stream;
 
     //! the (absolute) sequence number for the next byte to be sent
+    //
     uint64_t _next_seqno{0};
 
     //! dictionary for keeping outstanding segment

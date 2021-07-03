@@ -51,20 +51,14 @@ void TCPSender::fill_window() {
     string payload;
 
     /* For SYN */
-    if (!tcps_syn) {
+    if (!tcps_syn && next_seqno_absolute() == 0) {
         tcps_syn = true;
         segment.header().syn = true;
         send_segment(segment);
         return;
     }
 
-    /* For SYN-ACK */
-    if (tcps_syn && !tcps_syn_ack) {
-       tcps_syn_ack = true;
-       return;
-    }
-
-    if (tcps_syn  && !tcps_fin && (stream_in().buffer_size() > 0 || stream_in().eof())) {
+    if (tcps_syn && tcps_syn_ack && !tcps_fin && (stream_in().buffer_size() > 0 || stream_in().eof())) {
         if (tcps_window_size > 0) { 
             do {
                 /* Read from buffer */
@@ -74,7 +68,7 @@ void TCPSender::fill_window() {
                 else {
                     segment.payload() = stream_in().read(tcps_window_size);
                 }
-               
+
                 /* Put FIN flag */
                 if (stream_in().eof() && segment.length_in_sequence_space() + tcps_bytes_in_flight < tcps_window_size) {
                     segment.header().fin = true;
@@ -108,6 +102,8 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
         tcps_receiver_full = false;
 
     tcps_next_segno_ack = unwrap(ackno, _isn, tcps_next_segno_ack);
+    if (tcps_next_segno_ack == 1)
+        tcps_syn_ack = true;
     //! look for the ackno key in the map
     it = tcps_outstanding_segments.find(tcps_next_segno_ack);
 
@@ -136,6 +132,10 @@ void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_si
     //! stop the timer when there is no outstanding segments
     if (tcps_outstanding_segments.empty())
         tcps_timer_on = false;
+    
+    //! Avoid fill the window when the connection is not established
+    if (next_seqno_absolute() > 0)
+        fill_window();
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
@@ -172,5 +172,9 @@ void TCPSender::send_empty_segment()
 {
     TCPSegment empty_tcp_segment;
 
-    send_segment(empty_tcp_segment);
+    empty_tcp_segment.header().ack = true;
+
+    empty_tcp_segment.header().seqno = next_seqno();
+
+    segments_out().push(empty_tcp_segment);
 }
