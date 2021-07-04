@@ -24,24 +24,24 @@ TCPSender::TCPSender(const size_t capacity, const uint16_t retx_timeout, const s
     , _initial_retransmission_timeout{retx_timeout}
     , _stream(capacity) {}
 
-uint64_t TCPSender::bytes_in_flight() const { return tcps_bytes_in_flight; }
+uint64_t TCPSender::bytes_in_flight() const { return _bytes_in_flight; }
 
 void TCPSender::send_segment(TCPSegment segment) {
     /* Wrap seqno */
     segment.header().seqno = next_seqno();
     /* add bytes in flight */
-    tcps_bytes_in_flight += segment.length_in_sequence_space();
+    _bytes_in_flight += segment.length_in_sequence_space();
     /* calculate next_seqno */
     _next_seqno += segment.length_in_sequence_space();
     /* push in segment out */
     _segments_out.push(segment);
     /* insert in ordered map to search later */
-    tcps_outstanding_segments.insert(std::pair<uint64_t, TCPSegment>(_next_seqno, segment));
+    _outstanding_segments.insert(std::pair<uint64_t, TCPSegment>(_next_seqno, segment));
     /* start timer if not */
-    if (!tcps_timer_on) {
-        tcps_elapsed_time = 0;
-        tcps_rto = _initial_retransmission_timeout;
-        tcps_timer_on = true;
+    if (!_timer_on) {
+        _elapsed_time = 0;
+        _rto = _initial_retransmission_timeout;
+        _timer_on = true;
     }
 }
 
@@ -51,38 +51,42 @@ void TCPSender::fill_window() {
     string payload;
 
     /* For SYN */
-    if (!tcps_syn && next_seqno_absolute() == 0) {
-        tcps_syn = true;
+    if (!_syn) {
+        _syn = true;
         segment.header().syn = true;
         send_segment(segment);
         return;
     }
 
-    if (tcps_syn && tcps_syn_ack && !tcps_fin && (stream_in().buffer_size() > 0 || stream_in().eof())) {
-        if (tcps_window_size > 0) { 
-            do {
-                /* Read from buffer */
-                if (tcps_window_size > TCPConfig::MAX_PAYLOAD_SIZE) {
-                    segment.payload() = stream_in().read(TCPConfig::MAX_PAYLOAD_SIZE);
-                }
-                else {
-                    segment.payload() = stream_in().read(tcps_window_size);
-                }
-
-                /* Put FIN flag */
-                if (stream_in().eof() && segment.length_in_sequence_space() + tcps_bytes_in_flight < tcps_window_size) {
-                    segment.header().fin = true;
-                    tcps_fin = true;
-                }
-               
-                /* Only send when segment occupies sequence space */
-                if (segment.length_in_sequence_space() > 0) {
-                    tcps_window_size -= segment.length_in_sequence_space();
-                    send_segment(segment);
-                }
-
-            } while (stream_in().buffer_size() > 0 && tcps_window_size > 0); 
+    while (stream_in().buffer_size() > 0 && _recv_wdn_sz > 0) { 
+        /* Read from buffer */
+        if (_recv_wdn_sz > TCPConfig::MAX_PAYLOAD_SIZE) {
+            segment.payload() = stream_in().read(TCPConfig::MAX_PAYLOAD_SIZE);
+            _recv_wdn_sz -= segment.length_in_sequence_space();
         }
+        else {
+            segment.payload() = stream_in().read(_recv_wdn_sz);
+             _recv_wdn_sz -= segment.length_in_sequence_space();
+        }
+
+        if (stream_in().eof() && _recv_wdn_sz > 0) {
+            /* Put FIN flag, piggy-backed FIN*/
+            segment.header().fin = true;
+            _fin_sent = true;
+            _recv_wdn_sz -= 1;
+        }
+       /* Only send when segment occupies sequence space */
+        if (segment.length_in_sequence_space() > 0) {
+            send_segment(segment);
+        }
+    }
+
+    //! If can't piggy-back FIN, do it next time
+    if (!_fin_sent && stream_in().eof() && _recv_wdn_sz > 0) {
+        segment.header().fin = true;
+        _recv_wdn_sz -= 1;
+        send_segment(segment);
+        _fin_sent = true;
     }
 }
 
@@ -90,91 +94,95 @@ void TCPSender::fill_window() {
 //! \param window_size The remote receiver's advertised window size
 void TCPSender::ack_received(const WrappingInt32 ackno, const uint16_t window_size) { 
 
-    std::map<uint64_t, TCPSegment>::iterator it;
-    std::map<uint64_t, TCPSegment>::iterator iit;
-   
     /* window size handling */
-    tcps_window_size = window_size;
-    if (tcps_window_size == 0) {
-        tcps_window_size = 1;
-        tcps_receiver_full = true;
-    } else 
-        tcps_receiver_full = false;
+    uint64_t abs_ackno = unwrap(ackno, _isn, _abs_ackno);
+    TCPSegment seg;
 
-    tcps_next_segno_ack = unwrap(ackno, _isn, tcps_next_segno_ack);
-    if (tcps_next_segno_ack == 1)
-        tcps_syn_ack = true;
-    //! look for the ackno key in the map
-    it = tcps_outstanding_segments.find(tcps_next_segno_ack);
+    if (abs_ackno > next_seqno_absolute())
+        return;
 
-    //! If found, then delete all elements before 
-    if (it != tcps_outstanding_segments.end()) {
-        for (iit = tcps_outstanding_segments.begin(); iit != it; ++iit)
-            tcps_bytes_in_flight -= (iit->second).length_in_sequence_space();
-
-        tcps_outstanding_segments.erase(tcps_outstanding_segments.begin(), it);
-        tcps_outstanding_segments.erase(it);
-        tcps_bytes_in_flight -= (it->second).length_in_sequence_space();
+    if (abs_ackno + window_size < next_seqno_absolute()) {
+        _recv_wdn_sz = 0;
+        return;
     }
     
-    /* Only reset timer when there is a new bigger ackno */
-    if (tcps_next_segno_ack > tcps_segno_max_ack) {
 
-        tcps_segno_max_ack = tcps_next_segno_ack;
-        tcps_rto = _initial_retransmission_timeout;
-        tcps_consecutive_retransmissions = 0;
+    _abs_ackno = abs_ackno;
+    _wdn_sz = window_size;
+
+    std::map<uint64_t, TCPSegment>::iterator it;
+    it = _outstanding_segments.find(_abs_ackno);
+    if (it != _outstanding_segments.end()) {
+        for (auto _it = _outstanding_segments.begin(); _it != it; ++_it) {
+            _bytes_in_flight -= (_it->second).length_in_sequence_space();
+        }
+        _outstanding_segments.erase(_outstanding_segments.begin(), it);
+        _bytes_in_flight -= (it->second).length_in_sequence_space();
+        _outstanding_segments.erase(it);
+    }
+
+    _recv_wdn_sz = abs_ackno + window_size - next_seqno_absolute(); 
+
+    _recv_wdn_sz = _wdn_sz == 0 ? 1 : _recv_wdn_sz;
+
+    /* Only reset timer when there is a new bigger ackno */
+    if (_abs_ackno > _max_abs_seqno) {
+        _max_abs_seqno = _abs_ackno;
+        _rto = _initial_retransmission_timeout;
+        _consecutive_retransmissions = 0;
         //! restart the timer when there is still outstanding segments
-        if (!tcps_outstanding_segments.empty()) {
-            tcps_elapsed_time = 0;
+        if (!_outstanding_segments.empty()) {
+            _elapsed_time = 0;
         }
     }
 
     //! stop the timer when there is no outstanding segments
-    if (tcps_outstanding_segments.empty())
-        tcps_timer_on = false;
-    
+    if (_outstanding_segments.empty())
+        _timer_on = false;
+
     //! Avoid fill the window when the connection is not established
-    if (next_seqno_absolute() > 0)
-        fill_window();
+    fill_window();
 }
 
 //! \param[in] ms_since_last_tick the number of milliseconds since the last call to this method
 void TCPSender::tick(const size_t ms_since_last_tick) {
-    std::map<uint64_t, TCPSegment>::iterator iit;
-
+    TCPSegment seg;
     /* Only check timeout if timer is on */
-    if (tcps_timer_on) {
-        if (!tcps_outstanding_segments.empty())
-            tcps_elapsed_time += ms_since_last_tick;
+    if (_timer_on) {
+        if (!_outstanding_segments.empty())
+            _elapsed_time += ms_since_last_tick;
         else {
-            tcps_rto = _initial_retransmission_timeout;
-            tcps_elapsed_time = 0;
+            _rto = _initial_retransmission_timeout;
+            _elapsed_time = 0;
         }
 
-        if (tcps_elapsed_time >= tcps_rto) {
-            iit = tcps_outstanding_segments.begin();
-            _segments_out.push(iit->second);
+        if (_elapsed_time >= _rto) {
+            if (!_outstanding_segments.empty()) {
+                auto it = _outstanding_segments.begin();
+                seg = it->second;
+                _segments_out.push(seg);
+            }
             /* Back-off timer when window size is 0, or the receiver's window is
              * full */
-            if (!tcps_receiver_full) {
-                tcps_consecutive_retransmissions++;
-                tcps_rto *= 2;
+            if (_wdn_sz > 0) {
+                _consecutive_retransmissions++;
+                _rto *= 2;
             }
             /* reset elapsed time */
-            tcps_elapsed_time = 0;
+            _elapsed_time = 0;
         }
     }
 }
 
-unsigned int TCPSender::consecutive_retransmissions() const { return tcps_consecutive_retransmissions; }
+unsigned int TCPSender::consecutive_retransmissions() const { return _consecutive_retransmissions; }
 
 void TCPSender::send_empty_segment() 
 {
-    TCPSegment empty_tcp_segment;
+    TCPSegment segment;
 
-    empty_tcp_segment.header().ack = true;
+    segment.header().ack = true;
 
-    empty_tcp_segment.header().seqno = next_seqno();
+    segment.header().seqno = next_seqno();
 
-    segments_out().push(empty_tcp_segment);
+    segments_out().push(segment);
 }

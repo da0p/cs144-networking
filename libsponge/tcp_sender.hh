@@ -35,43 +35,39 @@ class TCPSender {
     uint64_t _next_seqno{0};
 
     //! dictionary for keeping outstanding segment
-    std::map<uint64_t, TCPSegment> tcps_outstanding_segments{};
-
-    //! receiver's window size
-    uint16_t tcps_window_size{1};
+    std::map<uint64_t, TCPSegment> _outstanding_segments{};
 
     //! bytes in flight
-    size_t tcps_bytes_in_flight{0};
+    size_t _bytes_in_flight{0};
 
     //! syn flag
-    bool tcps_syn{false};
+    bool _syn{false};
 
     //! fin flag
-    bool tcps_fin{false};
+    bool _fin_sent{false};
 
     //! ack flag
-    bool tcps_receiver_full{false};
-
-    //! syn ack flag
-    bool tcps_syn_ack{false};
+    uint16_t _wdn_sz{1};
 
     //! next_segno_ack
-    uint64_t tcps_next_segno_ack{0};
+    uint64_t _abs_ackno{0};
+
+    uint16_t _recv_wdn_sz{0};
 
     //! segno_ack
-    uint64_t tcps_segno_max_ack{0};
+    uint64_t _max_abs_seqno{0};
 
     //! Retransmission timeout
-    unsigned int tcps_rto{0};
+    unsigned int _rto{0};
 
     //! Consecutive retransmiossion number
-    unsigned int tcps_consecutive_retransmissions{0};
+    unsigned int _consecutive_retransmissions{0};
 
     //! timer marker in ms
-    size_t tcps_elapsed_time{0}; 
+    size_t _elapsed_time{0}; 
 
     //! timer on/off
-    bool tcps_timer_on{false};
+    bool _timer_on{false};
 
 
   public:
