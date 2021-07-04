@@ -12,11 +12,11 @@
 class ByteStream {
   private:
     // Your code here -- add private members as necessary.
-    BufferList bs_buf{};
-    size_t bs_cap = 0;
-    size_t bs_total_written_bytes = 0;
-    size_t bs_total_read_bytes = 0;
-    size_t bs_input_ended = false;
+    BufferList _buf{};
+    size_t _cap = 0;
+    size_t _total_written_bytes = 0;
+    size_t _total_read_bytes = 0;
+    size_t _input_ended = false;
 
     // Hint: This doesn't need to be a sophisticated data structure at
     // all, but if any of your tests are taking longer than a second,

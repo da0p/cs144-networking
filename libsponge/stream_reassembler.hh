@@ -16,11 +16,11 @@ class StreamReassembler {
 
     ByteStream _output;  //!< The reassembled in-order byte stream
     size_t _capacity;    //!< The maximum number of bytes
-    size_t sr_unassembled_bytes;
-    size_t sr_expected_index;
-    size_t sr_rem_cap;
-    std::vector <std::string> sr_buf;
-    std::vector <bool> sr_buf_state;
+    size_t _unassembled_bytes;
+    size_t _expected_index;
+    size_t _rem_cap;
+    std::vector <std::string> _buf;
+    std::vector <bool> _buf_state;
     bool input_ended;
 
 

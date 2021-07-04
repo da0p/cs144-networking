@@ -1,4 +1,5 @@
 #include <iostream>
+#include <limits>
 #include "tcp_receiver.hh"
 
 // Dummy implementation of a TCP receiver
@@ -17,41 +18,41 @@ void TCPReceiver::segment_received(const TCPSegment &seg) {
     size_t bf_bytes_written;
 
     if (seg.header().syn) {
-        tcpr_isn = seg.header().seqno;
-        tcpr_syn = true;
+        _isn = seg.header().seqno;
+        _syn = true;
     }
     
-    if (tcpr_syn) {
-        tcpr_checkpoint = unwrap(seg.header().seqno, tcpr_isn, tcpr_checkpoint);
+    if (_syn) {
+        _checkpoint = unwrap(seg.header().seqno, _isn, _checkpoint);
         payload = seg.payload().copy();
         if (seg.header().fin)
-            tcpr_end = true;
+            _end = true;
 
-        _reassembler.push_substring(payload, seg.header().syn ? 0 : tcpr_checkpoint - 1, tcpr_end);
+        _reassembler.push_substring(payload, seg.header().syn ? 0 : _checkpoint - 1, _end);
 
         bf_bytes_written = _reassembler.stream_out().bytes_written();
 
         /* For SYN */
-        tcpr_exp_ack = bf_bytes_written + 1; 
+        _exp_ack = bf_bytes_written + 1; 
         
         /* for FIN */
-        if (tcpr_end && _reassembler.empty())
-            tcpr_exp_ack += 1;
+        if (_end && _reassembler.empty())
+            _exp_ack += 1;
 
-        tcpr_ack = wrap(tcpr_exp_ack, tcpr_isn);
+        _ack = wrap(_exp_ack, _isn);
     }
 }
 
 
 optional<WrappingInt32> TCPReceiver::ackno() const { 
 
-    if (tcpr_syn) {
+    if (_syn) {
 
-        return tcpr_ack;
+        return _ack;
     }
     return {}; 
 }
 
 size_t TCPReceiver::window_size() const { 
-    return _capacity - _reassembler.stream_out().buffer_size();  
+     return _capacity - _reassembler.stream_out().buffer_size();
 }
