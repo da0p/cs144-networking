@@ -34,6 +34,7 @@ void StreamReassembler::push_substring(const string &data, const size_t index, c
     size_t bs_rem_cap;
     size_t len = data.length();
     size_t i;
+    size_t k;
     string mod_data = data;
     string tmp;
     size_t mod_index = index;
@@ -61,36 +62,31 @@ void StreamReassembler::push_substring(const string &data, const size_t index, c
     }
     len = mod_data.length();
     for (i = mod_index; i < mod_index + len; i++) {
-        if (!sr_buf_state[i - sr_expected_index]) {
-            sr_buf[i - sr_expected_index] = mod_data.substr(i - mod_index, 1); 
-            sr_buf_state[i - sr_expected_index] = true;
+        if (!sr_buf_state[i % _capacity]) {
+            sr_buf[i % _capacity] = mod_data.substr(i - mod_index, 1); 
+            sr_buf_state[i % _capacity] = true;
             sr_unassembled_bytes++;
             sr_rem_cap--;
         }
     }
     
     i = 0;
+    k = sr_expected_index % _capacity;
     bs_rem_cap = _output.remaining_capacity();
-    while (sr_buf_state[0] && bs_rem_cap > 0) {
-        tmp += sr_buf.front();
+    while (sr_buf_state[k] && bs_rem_cap > 0) {
+        tmp += sr_buf[k];
+        sr_buf_state[k] = false;
         sr_unassembled_bytes--;
         sr_expected_index++;
         sr_rem_cap++;
         bs_rem_cap--;
-        sr_buf.pop_front();
-        sr_buf_state.pop_front();
+        k = sr_expected_index % _capacity;
         i++;
     }
 
     if (tmp.length() > 0)
         _output.write(tmp);
 
-    if (i > 0) {
-        /* erase first i elements */
-        sr_buf.resize(_capacity, "");
-        sr_buf_state.resize(_capacity, false);
-    }
-    
     if (eof)
         input_ended = true;
 

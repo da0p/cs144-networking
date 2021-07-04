@@ -5,7 +5,8 @@
 
 #include <cstdint>
 #include <string>
-#include <deque>
+//#include <deque>
+#include <vector>
 
 //! \brief A class that assembles a series of excerpts from a byte stream (possibly out of order,
 //! possibly overlapping) into an in-order byte stream.
@@ -18,8 +19,8 @@ class StreamReassembler {
     size_t sr_unassembled_bytes;
     size_t sr_expected_index;
     size_t sr_rem_cap;
-    std::deque <std::string> sr_buf;
-    std::deque <bool> sr_buf_state;
+    std::vector <std::string> sr_buf;
+    std::vector <bool> sr_buf_state;
     bool input_ended;
 
 
