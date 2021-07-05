@@ -5,8 +5,8 @@
 
 #include <cstdint>
 #include <string>
-//#include <deque>
-#include <vector>
+#include <map>
+#include <queue>
 
 //! \brief A class that assembles a series of excerpts from a byte stream (possibly out of order,
 //! possibly overlapping) into an in-order byte stream.
@@ -19,8 +19,7 @@ class StreamReassembler {
     size_t _unassembled_bytes;
     size_t _expected_index;
     size_t _rem_cap;
-    std::vector <std::string> _buf;
-    std::vector <bool> _buf_state;
+    std::map <size_t, std::string> _buf{};
     bool input_ended;
 
 
@@ -55,6 +54,14 @@ class StreamReassembler {
     //! \brief Is the internal state empty (other than the output stream)?
     //! \returns `true` if no substrings are waiting to be assembled
     bool empty() const;
+
+    void merge(const std::string &data, size_t index);
+
+    std::string merge_string(const std::string &str1, size_t ind1, const std::string &str2, size_t ind2);
+
+    std::tuple<std::string, size_t, bool> validate(const std::string &data, size_t index);
+
+    void reorder_buffer(void);
 };
 
 #endif  // SPONGE_LIBSPONGE_STREAM_REASSEMBLER_HH

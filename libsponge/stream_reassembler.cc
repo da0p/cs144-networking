@@ -1,4 +1,5 @@
 #include <iostream>
+#include <tuple>
 #include "stream_reassembler.hh"
 
 // Dummy implementation of a stream reassembler.
@@ -19,8 +20,6 @@ StreamReassembler::StreamReassembler(const size_t capacity) :
     _unassembled_bytes(0), 
     _expected_index(0),
     _rem_cap(capacity),
-    _buf(capacity, ""),
-    _buf_state(capacity, false),
     input_ended(false)
 {
 }
@@ -30,62 +29,17 @@ StreamReassembler::StreamReassembler(const size_t capacity) :
 //! contiguous substrings and writes them into the output stream in order.
 void StreamReassembler::push_substring(const string &data, const size_t index, const bool eof) {
     
-    size_t _upper_bound_index = _expected_index + _capacity;
-    size_t bs_rem_cap;
-    size_t len = data.length();
-    size_t i;
-    size_t k;
-    string mod_data = data;
-    string tmp;
-    size_t mod_index = index;
+    std::string mdata;
+    size_t mindex;
+    bool verified = false;
 
+    std::tie(mdata, mindex, verified) = validate(data, index);
 
-    if (len > 0) {
-        if (index <= _expected_index && index + len >= _upper_bound_index) {
-            mod_data = data.substr(_expected_index - index, _rem_cap);
-            mod_index = _expected_index;
-        }
-        else if (index <= _expected_index && index + len < _upper_bound_index) {
-            if (index + len <= _expected_index) return;
-            else {
-                mod_data = data.substr(_expected_index - index, len + index - _expected_index);
-                mod_index = _expected_index;
-            }
-        }
-        else if (index > _expected_index && index < _upper_bound_index) {
-            if (index + len > _upper_bound_index) {
-                mod_data = data.substr(0, _upper_bound_index - index); 
-                mod_index = index;
-            }
-        }
-        else if (index >= _upper_bound_index) return;
-    }
-    len = mod_data.length();
-    for (i = mod_index; i < mod_index + len; i++) {
-        if (!_buf_state[i % _capacity]) {
-            _buf[i % _capacity] = mod_data.substr(i - mod_index, 1); 
-            _buf_state[i % _capacity] = true;
-            _unassembled_bytes++;
-            _rem_cap--;
-        }
-    }
-    
-    i = 0;
-    k = _expected_index % _capacity;
-    bs_rem_cap = _output.remaining_capacity();
-    while (_buf_state[k] && bs_rem_cap > 0) {
-        tmp += _buf[k];
-        _buf_state[k] = false;
-        _unassembled_bytes--;
-        _expected_index++;
-        _rem_cap++;
-        bs_rem_cap--;
-        k = _expected_index % _capacity;
-        i++;
-    }
+    if (!verified) return;
 
-    if (tmp.length() > 0)
-        _output.write(tmp);
+    merge(mdata,  mindex);
+
+    reorder_buffer();
 
     if (eof)
         input_ended = true;
@@ -98,3 +52,165 @@ void StreamReassembler::push_substring(const string &data, const size_t index, c
 size_t StreamReassembler::unassembled_bytes() const { return _unassembled_bytes; }
 
 bool StreamReassembler::empty() const { return _unassembled_bytes == 0; }
+
+void StreamReassembler::merge(const std::string &data, size_t index) {
+    std::map<size_t, std::string>::iterator it;
+    std::map<size_t, std::string>::iterator it_prev;
+    std::queue<std::map<size_t, std::string>::iterator> _to_be_deleted;
+    size_t _index;
+    std::string s;
+    std::pair<size_t, std::string> p;
+    bool _first = false;
+
+    //! Only merge the first and the last element found, delete middle elements
+    for (it = _buf.begin(); it != _buf.end(); ++it) {
+        if (it->first + (it->second).length() >=index && it->first <= index + data.length()) {
+            if (!_first) {
+                if (index < it->first) {
+                    _index = index;
+                }
+                else {
+                    _index = it->first;
+                    s = merge_string(it->second, it->first, data, index);
+                }
+                _first = true;
+            }
+            _to_be_deleted.push(it);
+        }
+        if (it->first > index + data.length()) {
+           break; 
+        }
+
+        it_prev = it;
+    }
+    
+    if (_first) {
+        if (s.empty()) {
+            s = merge_string(data, index, it_prev->second, it_prev->first); 
+        }
+        else {
+            s = merge_string(s, _index, it_prev->second, it_prev->first); 
+        }
+    }
+
+    if (!_to_be_deleted.empty()) {
+        size_t _tot = 0;
+        while (!_to_be_deleted.empty()) {
+           auto iit =  _to_be_deleted.front();
+           _tot += (iit->second).length();
+            _buf.erase(iit);
+            _to_be_deleted.pop();
+        }
+        p = make_pair(_index, s);
+        _buf.insert(p);
+        _unassembled_bytes -= _tot - s.length();
+        _rem_cap += _tot - s.length();
+    }
+    else {
+        p = make_pair(index, data);
+        _buf.insert(p);
+        _unassembled_bytes += data.length();
+        _rem_cap -= data.length();
+    }
+}
+
+void StreamReassembler::reorder_buffer(void) {
+
+    size_t bs_rem_cap;
+    std::pair<size_t, std::string> p;
+
+    if (!_buf.empty()) {
+        auto it = _buf.begin();
+        bs_rem_cap = _output.remaining_capacity();
+        if (it->first == _expected_index && bs_rem_cap > 0) {
+            if ((it->second).length() > bs_rem_cap) {
+                auto tmp = (it->second).substr(0, bs_rem_cap);
+                _output.write(tmp);
+                _expected_index += tmp.length();
+                _unassembled_bytes -= tmp.length();
+                _rem_cap += tmp.length();
+                _buf.erase(it);
+                //! create a new pair
+                p = make_pair(_expected_index, (it->second).substr(bs_rem_cap, (it->second).length() - bs_rem_cap)); 
+                _buf.insert(p);
+            }
+            else {
+                //! just write and erase
+                _output.write(it->second);
+                _unassembled_bytes -= (it->second).length();
+                _rem_cap += (it->second).length();
+                _expected_index += (it->second).length();
+                _buf.erase(it);
+            }
+        }
+    }
+}
+
+std::tuple<std::string, size_t, bool> StreamReassembler::validate(const std::string &data, size_t index) {
+
+    size_t _upper_bound_index = _expected_index + _capacity;
+    size_t len = data.length();
+    size_t mod_data_s = 0;
+    string mod_data;
+    size_t mod_index = index;
+
+    if (len > 0) {
+        if (index <= _expected_index && index + len >= _upper_bound_index) {
+            mod_index = _expected_index;
+            len = _rem_cap;
+            mod_data_s = _expected_index - index;
+            
+        }
+        else if (index <= _expected_index && index + len < _upper_bound_index) {
+            if (index + len <= _expected_index) return {std::string(), 0, false};
+            else {
+                mod_index = _expected_index;
+                len = len + index - _expected_index;
+                mod_data_s = _expected_index - index;
+            }
+        }
+        else if (index > _expected_index && index < _upper_bound_index) {
+            if (index + len > _upper_bound_index) {
+                mod_index = index;
+                len = _upper_bound_index - index;
+                mod_data_s = 0;
+            }
+        }
+        else if (index >= _upper_bound_index) return {std::string(), 0, false};
+    }
+    mod_data = data.substr(mod_data_s, len);
+    
+    return {mod_data, mod_index, true};
+}
+
+std::string StreamReassembler:: merge_string(const std::string &str1, size_t ind1, const std::string &str2, size_t ind2) {
+    
+    size_t _overlapped;
+    string s;
+
+    if (ind1 < ind2 && ind1 + str1.length() < ind2) {
+        return s;
+    }
+
+    if (ind2 < ind1 && ind2 + str2.length() < ind1) {
+        return s;
+    }
+
+    if (ind1 <= ind2) {
+        _overlapped = ind1 + str1.length() - ind2;
+        if (_overlapped < str2.length())
+            s = str1 + str2.substr(_overlapped, str2.length() - _overlapped);
+        else
+            s = str1;
+    }
+    else
+    {
+        _overlapped = ind2 + str2.length() - ind1;
+        if (_overlapped < str1.length()) 
+            s = str2 + str1.substr(_overlapped, str1.length() - _overlapped);
+        else
+            s = str2;
+    }
+
+    return s;
+}
