@@ -27,16 +27,15 @@ size_t ByteStream::write(const string &data) {
     if (rem_cap > 0) {
         if (rem_cap < len) {
             n_written_bytes = rem_cap;
-            Buffer bf{data.substr(0, n_written_bytes)};
-            _buf.append(bf);
             _total_written_bytes += n_written_bytes;
         }
         else {
             n_written_bytes = len;
-            Buffer bf{string(data)};
-            _buf.append(bf);
             _total_written_bytes += n_written_bytes;
         }
+
+        Buffer bf{std::move(string().assign(data.begin(), data.begin() + n_written_bytes))};
+        _buf.append(bf);
     }
     return n_written_bytes;
 }
@@ -44,14 +43,12 @@ size_t ByteStream::write(const string &data) {
 //! \param[in] len bytes will be copied from the output side of the buffer
 string ByteStream::peek_output(const size_t len) const {
     string buf = _buf.concatenate();
-    string fr = buf;
-    size_t blen = buf.length();
+    size_t blen = buffer_size();
 
     if (blen > len) {
-        fr = buf.substr(0, len);
+        blen = len;
     }
-    
-    return fr;
+    return  string().assign(buf.begin(), buf.begin() + blen); 
 }
 
 //! \param[in] len bytes will be removed from the output side of the buffer
