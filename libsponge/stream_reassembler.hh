@@ -18,7 +18,6 @@ class StreamReassembler {
     size_t _capacity;    //!< The maximum number of bytes
     size_t _unassembled_bytes;
     size_t _expected_index;
-    size_t _rem_cap;
     std::map <size_t, std::string> _buf{};
     bool input_ended;
 
@@ -59,7 +58,7 @@ class StreamReassembler {
 
     std::string merge_string(const std::string &str1, size_t ind1, const std::string &str2, size_t ind2);
 
-    std::tuple<std::string, size_t, bool> validate(const std::string &data, size_t index);
+    std::tuple<std::string, size_t, bool, bool> validate(const std::string &data, size_t index, bool eof);
 
     void reorder_buffer(void);
 };

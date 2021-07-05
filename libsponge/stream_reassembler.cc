@@ -19,7 +19,6 @@ StreamReassembler::StreamReassembler(const size_t capacity) :
     _capacity(capacity), 
     _unassembled_bytes(0), 
     _expected_index(0),
-    _rem_cap(capacity),
     input_ended(false)
 {
 }
@@ -32,16 +31,19 @@ void StreamReassembler::push_substring(const string &data, const size_t index, c
     std::string mdata;
     size_t mindex;
     bool verified = false;
+    bool _eof = false;
 
-    std::tie(mdata, mindex, verified) = validate(data, index);
+    std::tie(mdata, mindex, _eof, verified) = validate(data, index, eof);
 
     if (!verified) return;
 
-    merge(mdata,  mindex);
+    if (!mdata.empty()) {
+        merge(mdata,  mindex);
 
-    reorder_buffer();
+        reorder_buffer();
+    }
 
-    if (eof)
+    if (_eof)
         input_ended = true;
 
     if (input_ended && empty()) {
@@ -104,13 +106,11 @@ void StreamReassembler::merge(const std::string &data, size_t index) {
         p = make_pair(_index, s);
         _buf.insert(p);
         _unassembled_bytes -= _tot - s.length();
-        _rem_cap += _tot - s.length();
     }
     else {
         p = make_pair(index, data);
         _buf.insert(p);
         _unassembled_bytes += data.length();
-        _rem_cap -= data.length();
     }
 }
 
@@ -128,7 +128,6 @@ void StreamReassembler::reorder_buffer(void) {
                 _output.write(tmp);
                 _expected_index += tmp.length();
                 _unassembled_bytes -= tmp.length();
-                _rem_cap += tmp.length();
                 _buf.erase(it);
                 //! create a new pair
                 p = make_pair(_expected_index, (it->second).substr(bs_rem_cap, (it->second).length() - bs_rem_cap)); 
@@ -138,7 +137,6 @@ void StreamReassembler::reorder_buffer(void) {
                 //! just write and erase
                 _output.write(it->second);
                 _unassembled_bytes -= (it->second).length();
-                _rem_cap += (it->second).length();
                 _expected_index += (it->second).length();
                 _buf.erase(it);
             }
@@ -146,23 +144,25 @@ void StreamReassembler::reorder_buffer(void) {
     }
 }
 
-std::tuple<std::string, size_t, bool> StreamReassembler::validate(const std::string &data, size_t index) {
+std::tuple<std::string, size_t, bool, bool> StreamReassembler::validate(const std::string &data, size_t index, bool eof) {
 
-    size_t _upper_bound_index = _expected_index + _capacity;
+    size_t _upper_bound_index = _expected_index + _output.remaining_capacity();
     size_t len = data.length();
     size_t mod_data_s = 0;
     string mod_data;
     size_t mod_index = index;
+    bool _eof = eof;
 
     if (len > 0) {
-        if (index <= _expected_index && index + len >= _upper_bound_index) {
+        if (index <= _expected_index && index + len > _upper_bound_index) {
             mod_index = _expected_index;
-            len = _rem_cap;
+            len = _upper_bound_index - _expected_index;
             mod_data_s = _expected_index - index;
-            
+            //! Discard eof if not fit in buffer
+            _eof = false; 
         }
-        else if (index <= _expected_index && index + len < _upper_bound_index) {
-            if (index + len <= _expected_index) return {std::string(), 0, false};
+        else if (index <= _expected_index && index + len <= _upper_bound_index) {
+            if (index + len <= _expected_index) return {std::string(), 0, false, _eof};
             else {
                 mod_index = _expected_index;
                 len = len + index - _expected_index;
@@ -174,13 +174,15 @@ std::tuple<std::string, size_t, bool> StreamReassembler::validate(const std::str
                 mod_index = index;
                 len = _upper_bound_index - index;
                 mod_data_s = 0;
+                //! Discard eof if not fit in buffer
+                _eof = false;
             }
         }
-        else if (index >= _upper_bound_index) return {std::string(), 0, false};
+        else if (index >= _upper_bound_index) return {std::string(), 0, false, false};
     }
     mod_data = data.substr(mod_data_s, len);
-    
-    return {mod_data, mod_index, true};
+
+    return {mod_data, mod_index, _eof, true};
 }
 
 std::string StreamReassembler:: merge_string(const std::string &str1, size_t ind1, const std::string &str2, size_t ind2) {
