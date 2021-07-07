@@ -17,6 +17,9 @@ void TCPReceiver::segment_received(const TCPSegment &seg) {
     string payload;
     size_t bf_bytes_written;
 
+    if (seg.header().syn && _syn)
+        return;
+
     if (seg.header().syn) {
         _isn = seg.header().seqno;
         _syn = true;
