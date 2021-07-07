@@ -153,47 +153,46 @@ std::tuple<std::string, size_t, bool, bool> StreamReassembler::validate(const st
     size_t mod_index = index;
     bool _eof = eof;
 
-    if (len > 0) {
+    if (_output.remaining_capacity() == 0) return {std::string(), 0, _eof, true};
 
-        if (index >= _upper_bound_index) return {std::string(), 0, false, false};
+    if (len == 0) return {std::string(), 0, _eof, true};
 
-        if (index + len <= _expected_index) return {std::string(), 0, _eof, false};
+    if (index >= _upper_bound_index) return {std::string(), 0, false, false};
 
-        if (index <= _expected_index) {
-            if (index + len > _upper_bound_index) {
-                mod_index = _expected_index;
-                len = _upper_bound_index - _expected_index;
-                mod_data_s = _expected_index - index;
-                //! Discard eof if not fit in buffer
-                _eof = false; 
-            }
-            else {
-                mod_index = _expected_index;
-                len = data.length() + index - _expected_index;
-                mod_data_s = _expected_index - index;
-            }
+    if (index + len <= _expected_index) return {std::string(), 0, false, false};
+
+    if (index <= _expected_index) {
+        if (index + len > _upper_bound_index) {
+            mod_index = _expected_index;
+            len = _upper_bound_index - _expected_index;
+            mod_data_s = _expected_index - index;
+            //! Discard eof if not fit in buffer
+            _eof = false; 
         }
         else {
-            if (index + len > _upper_bound_index) {
-                mod_index = index;
-                len = _upper_bound_index - index;
-                mod_data_s = 0;
-                //! Discard eof if not fit in buffer
-                _eof = false;
-            }
-            else {
-                mod_index = index;
-                len = data.length();
-                mod_data_s = 0;
-            }
+            mod_index = _expected_index;
+            len = data.length() + index - _expected_index;
+            mod_data_s = _expected_index - index;
         }
-
-        mod_data = data.substr(mod_data_s, len);
-
-        return {mod_data, mod_index, _eof, true};
+    }
+    else {
+        if (index + len > _upper_bound_index) {
+            mod_index = index;
+            len = _upper_bound_index - index;
+            mod_data_s = 0;
+            //! Discard eof if not fit in buffer
+            _eof = false;
+        }
+        else {
+            mod_index = index;
+            len = data.length();
+            mod_data_s = 0;
+        }
     }
 
-    return {std::string(), mod_index, _eof, _eof ? true : false};
+    mod_data = data.substr(mod_data_s, len);
+
+    return {mod_data, mod_index, _eof, true};
 }
 
 std::string StreamReassembler:: merge_string(const std::string &str1, size_t ind1, const std::string &str2, size_t ind2) {
