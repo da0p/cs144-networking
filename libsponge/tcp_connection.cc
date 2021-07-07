@@ -78,7 +78,7 @@ void TCPConnection::segment_received(const TCPSegment &seg) {
     }
     //! The remote one is the one to end the stream first (passive
     //close)
-    if (_receiver.stream_out().eof() && !_sender.stream_in().eof())
+    if (_receiver.stream_out().input_ended() && !_sender.stream_in().eof())
         _linger_after_streams_finish = false;
 
 
@@ -99,6 +99,7 @@ bool TCPConnection::active() const {
     else {
         if (_receiver.stream_out().eof() && 
             _sender.stream_in().eof() && 
+            bytes_in_flight() == 0 &&
             time_since_last_segment_received() >=10 * _cfg.rt_timeout)
             return false;
     }
@@ -166,7 +167,6 @@ TCPConnection::~TCPConnection() {
     try {
         if (active()) {
             cerr << "Warning: Unclean shutdown of TCPConnection\n";
-            flush_buffer();
             unclean_shutdown(); 
             // Your code here: need to send a RST segment to the peer
         }
@@ -178,6 +178,7 @@ TCPConnection::~TCPConnection() {
 void TCPConnection::unclean_shutdown() {
     TCPSegment seg;
 
+    _linger_after_streams_finish = false;
     _sender.stream_in().set_error();
     _receiver.stream_out().set_error();
     if (_sender.segments_out().empty())
