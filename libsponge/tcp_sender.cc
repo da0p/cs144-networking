@@ -185,3 +185,7 @@ void TCPSender::send_empty_segment()
 
     segments_out().push(segment);
 }
+
+bool TCPSender::fin_sent(void) const {
+    return _fin_sent;
+}

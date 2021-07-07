@@ -109,6 +109,8 @@ class TCPSender {
     //! (see TCPSegment::length_in_sequence_space())
     size_t bytes_in_flight() const;
 
+    bool fin_sent(void) const;
+
     //! \brief Number of consecutive retransmissions that have occurred in a row
     unsigned int consecutive_retransmissions() const;
 
