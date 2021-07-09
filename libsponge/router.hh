@@ -5,7 +5,17 @@
 
 #include <optional>
 #include <queue>
+#include <map>
+#include <iostream>
 
+typedef std::pair<uint8_t, uint32_t> RoutingInfo;
+typedef std::pair<std::optional<Address> , size_t> NextHop;
+typedef struct compare_prefix_length {
+    bool operator()(RoutingInfo const &rf1, RoutingInfo const &rf2) const {
+        if (rf1.first <= rf2.first) return true;
+        else return false;
+    }
+}prefix_sort;
 //! \brief A wrapper for NetworkInterface that makes the host-side
 //! interface asynchronous: instead of returning received datagrams
 //! immediately (from the `recv_frame` method), it stores them for
@@ -49,6 +59,10 @@ class Router {
     //! datagram's destination address.
     void route_one_datagram(InternetDatagram &dgram);
 
+    //! Routing Table
+    std::map<RoutingInfo, NextHop, prefix_sort> _rtable{};
+
+
   public:
     //! Add an interface to the router
     //! \param[in] interface an already-constructed network interface
@@ -69,6 +83,9 @@ class Router {
 
     //! Route packets between the interfaces
     void route();
+
+    uint32_t mask_net(uint32_t ip, uint8_t prefix_length);
+
 };
 
 #endif  // SPONGE_LIBSPONGE_ROUTER_HH
